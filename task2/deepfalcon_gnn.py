@@ -147,51 +147,112 @@ def pointcloud_to_graph(features: np.ndarray, k: int = 8,
 # ─────────────────────────────────────────────────────────
 class JetGraphDataset(Dataset):
     """
-    Converts raw HDF5 jet images to PyG graphs on-the-fly (with cache).
+    Lazy HDF5 loading — reads one event at a time, no RAM overflow.
     """
-    def __init__(self, filepath: str, k: int = 8, max_nodes: int = 400,
-                 max_samples: int | None = None, threshold: float = 0.0):
+    def __init__(self, filepath, k=8, max_nodes=400,
+                 max_samples=None, threshold=0.0):
         super().__init__()
-        self.k = k; self.max_nodes = max_nodes; self.threshold = threshold
+        self.filepath  = filepath
+        self.k         = k
+        self.max_nodes = max_nodes
+        self.threshold = threshold
 
         with h5py.File(filepath, "r") as f:
             keys = list(f.keys())
-            x_key = "X" if "X" in keys else "jetImage"
-            y_key = "y" if "y" in keys else "jetLabel"
-            X = f[x_key][:]
-            Y = f[y_key][:]
+            self.x_key = ("X_jets" if "X_jets" in keys
+                          else ("X" if "X" in keys else "jetImage"))
+            self.y_key = "y" if "y" in keys else "jetLabel"
+            total      = f[self.x_key].shape[0]
+            self.n     = min(max_samples, total) if max_samples else total
 
-        if X.ndim == 4 and X.shape[-1] == 3:
-            X = X.transpose(0, 3, 1, 2)          # (N,3,H,W)
-        X = X.astype(np.float32)
-        X = np.log1p(X)
-        for c in range(3):
-            p = np.percentile(X[:, c], 99)
-            if p > 0: X[:, c] = np.clip(X[:, c] / p, 0, 1)
+            # Load only labels — tiny
+            self.Y = f[self.y_key][:self.n].astype(np.int64)
 
-        if max_samples:
-            X = X[:max_samples]; Y = Y[:max_samples]
+            # Compute 99th percentile on small sample only
+            sample = f[self.x_key][:min(2000, self.n)]
+            if sample.ndim == 4 and sample.shape[-1] == 3:
+                sample = sample.transpose(0, 3, 1, 2)
+            sample = np.log1p(sample.astype(np.float32))
+            self.p99 = [float(np.percentile(sample[:, c], 99))
+                        for c in range(3)]
 
-        self.X = X
-        self.Y = Y.astype(np.int64)
-        print(f"Dataset: {len(self.X)} events loaded.")
+        print(f"Dataset ready: {self.n} events (lazy loading)")
 
-    def __len__(self): return len(self.X)
+    def __len__(self): return self.n
 
     def __getitem__(self, idx):
-        img = self.X[idx]
+        # Read ONE event from disk
+        with h5py.File(self.filepath, "r") as f:
+            x = f[self.x_key][idx]
+
+        if x.ndim == 3 and x.shape[-1] == 3:
+            x = x.transpose(2, 0, 1)
+        x = np.log1p(x.astype(np.float32))
+        for c in range(3):
+            if self.p99[c] > 0:
+                x[c] = np.clip(x[c] / self.p99[c], 0, 1)
+
         lbl = int(self.Y[idx])
-        coords, feats = image_to_pointcloud(img, self.threshold)
+        coords, feats = image_to_pointcloud(x, self.threshold)
         if feats is None:
-            # degenerate event: single zero-node graph
             feats = np.zeros((1, 7), dtype=np.float32)
-        graph = pointcloud_to_graph(feats, k=self.k, max_nodes=self.max_nodes)
+
+        graph   = pointcloud_to_graph(feats, k=self.k,
+                                      max_nodes=self.max_nodes)
         graph.y = torch.tensor([lbl], dtype=torch.long)
         return graph
 
 
 def collate_fn(batch):
     return Batch.from_data_list(batch)
+# class JetGraphDataset(Dataset):
+#     """
+#     Converts raw HDF5 jet images to PyG graphs on-the-fly (with cache).
+#     """
+#     def __init__(self, filepath: str, k: int = 8, max_nodes: int = 400,
+#                  max_samples: int | None = None, threshold: float = 0.0):
+#         super().__init__()
+#         self.k = k; self.max_nodes = max_nodes; self.threshold = threshold
+
+#         with h5py.File(filepath, "r") as f:
+#             keys = list(f.keys())
+#             # x_key = "X" if "X" in keys else "jetImage"
+#             x_key = "X_jets" if "X_jets" in keys else ("X" if "X" in keys else "jetImage")
+#             y_key = "y" if "y" in keys else "jetLabel"
+#             X = f[x_key][:]
+#             Y = f[y_key][:]
+
+#         if X.ndim == 4 and X.shape[-1] == 3:
+#             X = X.transpose(0, 3, 1, 2)          # (N,3,H,W)
+#         X = X.astype(np.float32)
+#         X = np.log1p(X)
+#         for c in range(3):
+#             p = np.percentile(X[:, c], 99)
+#             if p > 0: X[:, c] = np.clip(X[:, c] / p, 0, 1)
+
+#         if max_samples:
+#             X = X[:max_samples]; Y = Y[:max_samples]
+
+#         self.X = X
+#         self.Y = Y.astype(np.int64)
+#         print(f"Dataset: {len(self.X)} events loaded.")
+
+#     def __len__(self): return len(self.X)
+
+#     def __getitem__(self, idx):
+#         img = self.X[idx]
+#         lbl = int(self.Y[idx])
+#         coords, feats = image_to_pointcloud(img, self.threshold)
+#         if feats is None:
+#             # degenerate event: single zero-node graph
+#             feats = np.zeros((1, 7), dtype=np.float32)
+#         graph = pointcloud_to_graph(feats, k=self.k, max_nodes=self.max_nodes)
+#         graph.y = torch.tensor([lbl], dtype=torch.long)
+#         return graph
+
+
+# def collate_fn(batch):
+#     return Batch.from_data_list(batch)
 
 
 # ─────────────────────────────────────────────────────────
