@@ -39,13 +39,23 @@ print(f"Device: {DEVICE}")
 # 1. Dataset  (same preprocessing as Task 1)
 # ─────────────────────────────────────────────
 class JetImageDataset(Dataset):
-    def __init__(self, filepath, max_samples=None):
+    def __init__(self, filepath, max_samples=None, img_size=64):
         with h5py.File(filepath, "r") as f:
             keys = list(f.keys())
-            x_key = "X" if "X" in keys else "jetImage"
+            print(f"HDF5 keys: {keys}")
+            # Support multiple dataset naming conventions
+            if "X_jets" in keys:
+                x_key = "X_jets"
+            elif "X" in keys:
+                x_key = "X"
+            else:
+                x_key = "jetImage"
             y_key = "y" if "y" in keys else "jetLabel"
-            X = f[x_key][:]
-            self.labels = torch.tensor(f[y_key][:], dtype=torch.long)
+            # Load only up to max_samples rows to save RAM
+            n_total = f[x_key].shape[0]
+            n_load  = min(max_samples, n_total) if max_samples else n_total
+            X = f[x_key][:n_load]
+            self.labels = torch.tensor(f[y_key][:n_load], dtype=torch.long)
 
         if X.ndim == 4 and X.shape[-1] == 3:
             X = X.transpose(0, 3, 1, 2)
@@ -55,14 +65,18 @@ class JetImageDataset(Dataset):
             p = np.percentile(X[:, c], 99)
             if p > 0: X[:, c] = np.clip(X[:, c] / p, 0, 1)
 
-        if max_samples:
-            X = X[:max_samples]
-            self.labels = self.labels[:max_samples]
-
         # Scale to [-1, 1] — diffusion models work in this range
         X = X * 2.0 - 1.0
 
-        self.data = torch.tensor(X, dtype=torch.float32)
+        # Resize to img_size x img_size (default 64×64, ~4× faster than 125×125)
+        X_tensor = torch.tensor(X, dtype=torch.float32)
+        if img_size != 125:
+            X_tensor = F.interpolate(
+                X_tensor, size=(img_size, img_size),
+                mode="bilinear", align_corners=False)
+            print(f"Resized to {img_size}×{img_size}")
+
+        self.data = X_tensor
         print(f"Loaded {len(self.data)} events, shape {tuple(self.data.shape[1:])}")
 
     def __len__(self): return len(self.data)
@@ -83,8 +97,13 @@ class DDPMScheduler:
         self.T = T
         self.device = device
 
-        # β schedule
-        self.betas = torch.linspace(beta_start, beta_end, T, device=device)
+        # Cosine β schedule (Nichol & Dhariwal 2021) — better than linear.
+        # Adds noise more gently at the start and end, preserving structure longer.
+        steps = torch.arange(T + 1, device=device) / T
+        f = torch.cos((steps + 0.008) / 1.008 * math.pi / 2) ** 2
+        alpha_bar_full = f / f[0]
+        self.betas = torch.clamp(
+            1 - alpha_bar_full[1:] / alpha_bar_full[:-1], max=0.999)
 
         # Derived quantities
         self.alphas        = 1.0 - self.betas
@@ -520,7 +539,13 @@ def plot_pixel_histograms(originals, reconstructions, out):
 
 def plot_noise_levels(scheduler, sample_img, out):
     """Show a single jet at several noise levels t."""
-    ts = [0, 100, 250, 500, 750, 999]
+    T   = scheduler.T
+    ts  = [0,
+           T // 5,
+           T * 2 // 5,
+           T * 3 // 5,
+           T * 4 // 5,
+           T - 1]           # always ends at last valid index
     fig, axes = plt.subplots(3, len(ts), figsize=(len(ts)*2.5, 9),
                               facecolor="#0d0d0d")
     x0 = sample_img.unsqueeze(0).to(DEVICE)
@@ -571,10 +596,10 @@ def plot_metrics_comparison(ddpm_metrics, vae_metrics=None, out="metrics.png"):
     plt.close(fig); print(f"Saved → {out}")
 
 
-def plot_generated_samples(scheduler, model, n=6, out="generated.png"):
+def plot_generated_samples(scheduler, model, n=6, out="generated.png", img_size=64):
     """Generate brand-new jets from pure Gaussian noise."""
     model.eval()
-    samples = scheduler.sample(model, shape=(n, 3, 125, 125),
+    samples = scheduler.sample(model, shape=(n, 3, img_size, img_size),
                                show_progress=True)
     imgs = to_01(samples).cpu().numpy()
 
@@ -613,6 +638,8 @@ if __name__ == "__main__":
     parser.add_argument("--base_ch",      type=int,   default=64,
                         help="U-Net base channels (reduce to 32 for CPU)")
     parser.add_argument("--max_samples",  type=int,   default=None)
+    parser.add_argument("--img_size",     type=int,   default=64,
+                        help="Resize images to this size (64 is ~4x faster than 125)")
     parser.add_argument("--out_dir",      type=str,   default="outputs_diff")
     parser.add_argument("--ckpt_dir",     type=str,   default="checkpoints_diff")
     parser.add_argument("--resume",       type=str,   default=None)
@@ -622,7 +649,8 @@ if __name__ == "__main__":
     os.makedirs(args.out_dir, exist_ok=True)
 
     # ── Dataset ──────────────────────────────
-    full_ds = JetImageDataset(args.data, max_samples=args.max_samples)
+    full_ds = JetImageDataset(args.data, max_samples=args.max_samples,
+                              img_size=args.img_size)
     n_tr = int(0.80 * len(full_ds))
     n_vl = int(0.10 * len(full_ds))
     n_te = len(full_ds) - n_tr - n_vl
@@ -697,6 +725,7 @@ if __name__ == "__main__":
     # ── Generated samples ────────────────────
     print("\nGenerating new samples from noise...")
     plot_generated_samples(scheduler, model, n=6,
-                           out=os.path.join(args.out_dir, "generated.png"))
+                           out=os.path.join(args.out_dir, "generated.png"),
+                           img_size=args.img_size)
 
     print(f"\n✓ All outputs saved to: {args.out_dir}")
