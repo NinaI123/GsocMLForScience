@@ -1,13 +1,13 @@
-# DeepFALCON — GSoC 2026 · ML4SCI
+# DeepFALCON - GSoC 2026 · ML4SCI
 **Applicant:** Sakina Ismail · si378@drexel.edu · [github.com/NinaI123](https://github.com/NinaI123)  
 **Project:** Diffusion Models for Fast Detector Simulation  
-**Dataset:** Quark/Gluon jet images — 139,306 events · 3 × 125 × 125 (ECAL, HCAL, Tracks)
+**Dataset:** Quark/Gluon jet images: 139,306 events · 3 × 125 × 125 (ECAL, HCAL, Tracks)
 
 ---
 
 ## Results Notebook
 
-Open `DeepFALCON_GSoC2026_SakinaIsmail.ipynb` to view all results — it is fully pre-executed with every plot and metric already embedded. No installation or dataset needed to read it.
+Open `DeepFALCON_GSoC2026_SakinaIsmail.ipynb` to view all results. It is fully pre-executed with every plot and metric already embedded. No installation or dataset needed to read it.
 
 ---
 
@@ -25,9 +25,9 @@ Open `DeepFALCON_GSoC2026_SakinaIsmail.ipynb` to view all results — it is full
 
 | Model | MSE | PSNR | AUC |
 |-------|-----|------|-----|
-| VAE v2 | 0.00697 | 21.56 dB | — |
-| GNN | — | — | 0.697 |
-| **DDPM** | **0.000602** | **32.20 dB** | — |
+| VAE v2 | 0.00697 | 21.56 dB | - |
+| GNN | - | - | 0.697 |
+| **DDPM** | **0.000602** | **32.20 dB** | - |
 
 DDPM W1 mean: **0.000840** across all three calorimeter channels.
 
@@ -40,7 +40,7 @@ DDPM W1 mean: **0.000840** across all three calorimeter channels.
 pip install torch numpy h5py matplotlib scikit-learn tqdm torch-geometric
 ```
 
-### Common Task 1 — VAE
+### Common Task 1 - VAE
 ```bash
 python deepfalcon_vae.py \
   --data path/to/quark-gluon_data-set_n139306.hdf5 \
@@ -49,9 +49,9 @@ python deepfalcon_vae.py \
   --base_ch 16 \
   --latent 128
 ```
-Outputs saved to `outputs/`
+Outputs saved to `task1_vae_outputs/`
 
-### Common Task 2 — GNN
+### Common Task 2 - GNN
 ```bash
 python deepfalcon_gnn.py \
   --data path/to/quark-gluon_data-set_n139306.hdf5 \
@@ -60,9 +60,9 @@ python deepfalcon_gnn.py \
   --k 8 \
   --batch 32
 ```
-Outputs saved to `outputs_gnn/`
+Outputs saved to `task2_gnn_outputs/`
 
-### Specific Task 2 — DDPM
+### Specific Task 2 - DDPM
 ```bash
 python deepfalcon_diffusion.py \
   --data path/to/quark-gluon_data-set_n139306.hdf5 \
@@ -74,7 +74,7 @@ python deepfalcon_diffusion.py \
   --t_recon 150 \
   --img_size 64
 ```
-Outputs saved to `outputs_diff/`
+Outputs saved to `sptask2_diffusion_outputs/`
 
 > All three scripts were run on CPU. Training times: VAE ~340s/epoch, GNN ~1270s/epoch, DDPM ~70s/epoch. GPU will be significantly faster.
 
@@ -83,13 +83,13 @@ Outputs saved to `outputs_diff/`
 ## Repository Structure
 
 ```
-├── DeepFALCON_GSoC2026_SakinaIsmail.ipynb   ← pre-executed results notebook
-├── deepfalcon_vae.py                          ← Task 1: Conditional VAE
-├── deepfalcon_gnn.py                          ← Task 2: GNN classifier
-├── deepfalcon_diffusion.py                    ← Specific Task 2: DDPM
-├── outputs/                                   ← VAE plots
-├── outputs_gnn/                               ← GNN plots
-└── outputs_diff/                              ← DDPM plots
+├── DeepFALCON_GSoC2026_SakinaIsmail.ipynb     <- pre-executed results notebook
+├── deepfalcon_vae.py                          <- Task 1: Conditional VAE
+├── deepfalcon_gnn.py                          <- Task 2: GNN classifier
+├── deepfalcon_diffusion.py                    <- Specific Task 2: DDPM
+├── task1_vae_outputs/                         <- VAE plots
+├── task2_gnn_outputs/                         <- GNN plots
+└── sptask2_diffusion_outputs/                 <- DDPM plots
 ```
 
 ---
