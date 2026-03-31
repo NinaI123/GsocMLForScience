@@ -307,10 +307,14 @@ class DecoderV2(nn.Module):
         )
 
         # U-Net decoder: each UpBlock takes skip from corresponding encoder level
-        self.up4 = UpBlock(B*8,  B*4,  B*8,  dropout)   # +skip3
-        self.up3 = UpBlock(B*8,  B*2,  B*4,  dropout)   # +skip2
-        self.up2 = UpBlock(B*4,  B,    B*2,  dropout)   # +skip1
-        self.up1 = UpBlock(B*2,  B,    B,    dropout)   # +skip0
+        # self.up4 = UpBlock(B*8,  B*4,  B*8,  dropout)   # +skip3
+        # self.up3 = UpBlock(B*8,  B*2,  B*4,  dropout)   # +skip2
+        # self.up2 = UpBlock(B*4,  B,    B*2,  dropout)   # +skip1
+        # self.up1 = UpBlock(B*2,  B,    B,    dropout)   # +skip0
+        self.up4 = UpBlock(B*8,  B*8,  B*8,  dropout)   # +skip3 (down3 output = B*8)
+        self.up3 = UpBlock(B*8,  B*4,  B*4,  dropout)   # +skip2 (down2 output = B*4)
+        self.up2 = UpBlock(B*4,  B*2,  B*2,  dropout)   # +skip1 (down1 output = B*2)
+        self.up1 = UpBlock(B*2,  B,    B,    dropout)   # +skip0 (init_conv output = B)
 
         self.out_conv = nn.Sequential(
             nn.GroupNorm(min(8, B), B),
@@ -772,7 +776,7 @@ if __name__ == "__main__":
     parser.add_argument("--epochs",       type=int,   default=50)
     parser.add_argument("--batch",        type=int,   default=64)
     parser.add_argument("--lr",           type=float, default=3e-4)
-    parser.add_argument("--latent",       type=int,   default=256)
+    parser.add_argument("--latent",       type=int,   default=128)
     parser.add_argument("--beta",         type=float, default=1.0)
     parser.add_argument("--beta_warmup",  type=int,   default=10)
     parser.add_argument("--base_ch",      type=int,   default=32)
